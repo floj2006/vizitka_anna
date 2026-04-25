@@ -161,6 +161,8 @@ const requestFormInitialState = {
   message: "",
 };
 
+const requestFormEndpoint = "/api/telegram";
+
 const eventOptions = [
   "Свадьба",
   "Юбилей",
@@ -272,12 +274,16 @@ function App() {
     setFormMessage("");
 
     try {
-      const response = await fetch("/api/telegram", {
+      const response = await fetch(requestFormEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestForm),
+      }).catch(() => {
+        throw new Error(
+          "Не получилось отправить заявку. Попробуйте ещё раз или позвоните."
+        );
       });
 
       const result = await response.json().catch(() => ({}));
