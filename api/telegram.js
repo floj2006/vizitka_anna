@@ -1,5 +1,28 @@
 const MAX_FIELD_LENGTH = 900;
 
+function cleanEnvValue(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+
+  if (
+    (quote === '"' || quote === "'") &&
+    trimmed.length > 1 &&
+    trimmed[trimmed.length - 1] === quote
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+}
+
+function normalizeBotToken(value) {
+  return cleanEnvValue(value).replace(/^bot/i, "");
+}
+
 function cleanField(value, fallback = "не указано") {
   if (typeof value !== "string") {
     return fallback;
@@ -34,6 +57,20 @@ function buildTelegramMessage(data) {
   ].join("\n");
 }
 
+async function readTelegramResult(telegramResponse) {
+  const body = await telegramResponse.text();
+
+  if (!body) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    return { description: body };
+  }
+}
+
 export default async function handler(request, response) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -49,10 +86,24 @@ export default async function handler(request, response) {
     return;
   }
 
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const botToken = normalizeBotToken(process.env.TELEGRAM_BOT_TOKEN);
+  const chatId = cleanEnvValue(process.env.TELEGRAM_CHAT_ID);
 
   if (!botToken || !chatId) {
+    console.error("Telegram form is not configured: missing env variables", {
+      hasBotToken: Boolean(botToken),
+      hasChatId: Boolean(chatId),
+    });
+
+    response.status(500).json({
+      message: "Отправка формы пока не настроена",
+    });
+    return;
+  }
+
+  if (!/^\d+:[A-Za-z0-9_-]+$/.test(botToken)) {
+    console.error("Telegram bot token has unexpected format");
+
     response.status(500).json({
       message: "Отправка формы пока не настроена",
     });
@@ -93,7 +144,15 @@ export default async function handler(request, response) {
       }
     );
 
+    const telegramResult = await readTelegramResult(telegramResponse);
+
     if (!telegramResponse.ok) {
+      console.error("Telegram sendMessage failed", {
+        status: telegramResponse.status,
+        errorCode: telegramResult.error_code,
+        description: telegramResult.description,
+      });
+
       response.status(502).json({
         message: "Заявка не отправилась. Попробуйте ещё раз",
       });
@@ -101,7 +160,11 @@ export default async function handler(request, response) {
     }
 
     response.status(200).json({ ok: true });
-  } catch {
+  } catch (error) {
+    console.error("Telegram request failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+
     response.status(500).json({
       message: "Не получилось отправить заявку",
     });
